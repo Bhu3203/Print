@@ -338,6 +338,7 @@ function PrintForm() {
       });
 
       const data = await res.json();
+      console.log(data);
       if (!res.ok) throw new Error(data.error);
 
       // 2️⃣ Open Razorpay
@@ -347,7 +348,12 @@ function PrintForm() {
         currency: "INR",
         order_id: data.orderId,
 
+        
         handler: async (response) => {
+          console.log(response.razorpay_order_id);
+      console.log(response.razorpay_payment_id);
+      console.log(response.razorpay_signature);
+      console.log(jobId)
           // 3️⃣ Verify payment
           const verifyRes = await fetch(`${API_BASE}/verify-payment`, {
             method: "POST",
@@ -366,11 +372,13 @@ function PrintForm() {
           // 4️⃣ OTP received
           setOtp(verifyData.otp);
           setSuccess("Payment successful. OTP generated.");
+          console.log(otp);
         },
+        
 
         theme: { color: "#16a34a" },
       };
-
+      
       const rzp = new window.Razorpay(options);
       rzp.open();
     } catch (err) {

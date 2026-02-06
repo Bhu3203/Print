@@ -1,3 +1,8 @@
+
+require("dotenv").config({ path: "./payment.env" }); 
+console.log("KEY_ID:", process.env.RAZORPAY_KEY_ID);
+console.log("KEY_SECRET:", process.env.RAZORPAY_KEY_SECRET);
+
 const express = require("express");
 const multer = require("multer");
 const mysql = require("mysql2/promise");
@@ -122,7 +127,8 @@ app.post("/api/create-payment", async (req, res) => {
     res.json({
       orderId: order.id,
       amount,
-      key: razorpay.key_id,
+      key: process.env.RAZORPAY_KEY_ID,
+      //key: razorpay.key_id,
     });
   } catch (err) {
     console.error("PAYMENT ERROR:", err);
@@ -134,34 +140,83 @@ app.post("/api/create-payment", async (req, res) => {
    3️⃣ VERIFY PAYMENT (RAZORPAY)
 ========================================================= */
 app.post("/api/verify-payment", async (req, res) => {
+
   try {
+    console.log("VERIFY PAYMENT BODY:", req.body);
     const {
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature,
     } = req.body;
 
-    const body = `${razorpay_order_id}|${razorpay_payment_id}`;
+    
+
+     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ error: "Missing payment fields" });
+    }
+
+   // const body = `${razorpay_order_id}|${razorpay_payment_id}`;
+    const body = razorpay_order_id + "|" + razorpay_payment_id;
+
 
     const expectedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(body)
       .digest("hex");
+    
+      console.log("EXPECTED:", expectedSignature);
+    console.log("RECEIVED:", razorpay_signature);
 
     if (expectedSignature !== razorpay_signature) {
       return res.status(400).json({ error: "Invalid payment signature" });
     }
 
+    // await db.query(
+    //   `UPDATE print_jobs
+    //    SET status = 'PAID', payment_id = ?
+    //    WHERE payment_order_id = ?`,
+    //   [razorpay_payment_id, razorpay_order_id]
+    // );
+
+    const [jobRows] = await db.query(
+  `SELECT job_id FROM print_jobs WHERE payment_order_id = ?`,
+  [razorpay_order_id]
+);
+
+if (!jobRows.length) {
+  return res.status(400).json({ error: "Job not found for this order" });
+}
+
+const jobId = jobRows[0].job_id;
+
+
+    // 2️⃣ Mark job as PAID
+    const [paidResult] = await db.query(
+  `UPDATE print_jobs
+   SET status = 'PAID', payment_id = ?
+   WHERE job_id = ?`,
+  [razorpay_payment_id, jobId]
+);
+
+    if (paidResult.affectedRows === 0) {
+      return res.status(400).json({ error: "Job not found" });
+    }
+
+    // 3️⃣ Generate OTP
+    const otp = generateOTP();
+    const expiry = new Date(Date.now() + 5 * 60 * 1000);
+
     await db.query(
       `UPDATE print_jobs
-       SET status = 'PAID', payment_id = ?
-       WHERE payment_order_id = ?`,
-      [razorpay_payment_id, razorpay_order_id]
+       SET otp = ?, otp_expires_at = ?
+       WHERE job_id = ?`,
+      [otp, expiry, jobId]
     );
 
-    res.json({ success: true });
+    res.json({ success: true, otp });
   } catch (err) {
     console.error("VERIFY ERROR:", err);
+    console.log(err)
     res.status(500).json({ error: "Payment verification failed" });
   }
 });
@@ -169,25 +224,25 @@ app.post("/api/verify-payment", async (req, res) => {
 /* =========================================================
    4️⃣ GENERATE OTP
 ========================================================= */
-app.post("/api/generate-otp", async (req, res) => {
-  const { jobId } = req.body;
+// app.post("/api/generate-otp", async (req, res) => {
+//   const { jobId } = req.body;
 
-  const otp = generateOTP();
-  const expiry = new Date(Date.now() + 5 * 60 * 1000);
+//   const otp = generateOTP();
+//   const expiry = new Date(Date.now() + 5 * 60 * 1000);
 
-  const [result] = await db.query(
-    `UPDATE print_jobs
-     SET otp = ?, otp_expires_at = ?
-     WHERE job_id = ? AND status = 'PAID'`,
-    [otp, expiry, jobId]
-  );
+//   const [result] = await db.query(
+//     `UPDATE print_jobs
+//      SET otp = ?, otp_expires_at = ?
+//      WHERE job_id = ? AND status = 'PAID'`,
+//     [otp, expiry, jobId]
+//   );
 
-  if (result.affectedRows === 0) {
-    return res.status(400).json({ error: "Job not paid or not found" });
-  }
+//   if (result.affectedRows === 0) {
+//     return res.status(400).json({ error: "Job not paid or not found" });
+//   }
 
-  res.json({ success: true, otp });
-});
+//   res.json({ success: true, otp });
+// });
 
 /* =========================================================
    5️⃣ VERIFY OTP
@@ -221,26 +276,27 @@ app.post("/api/verify-otp", async (req, res) => {
 });
 
 /* =========================================================
-   6️⃣ KIOSK FETCH JOB
+   6️⃣ KIOSK FETCH JOB BY OTP
 ========================================================= */
-app.get("/api/kiosk/job/:jobId", async (req, res) => {
-  const { jobId } = req.params;
+app.get("/api/kiosk/job-by-otp/:otp", async (req, res) => {
+  const { otp } = req.params;
 
   const [rows] = await db.query(
     `SELECT job_id, file_path, color, copies, paper_size
      FROM print_jobs
-     WHERE job_id = ?
+     WHERE otp = ?
        AND status = 'PAID'
        AND otp_verified = TRUE`,
-    [jobId]
+    [otp]
   );
 
   if (!rows.length) {
-    return res.status(403).json({ error: "Job not unlocked" });
+    return res.status(403).json({ error: "Job not unlocked or OTP invalid" });
   }
 
   res.json(rows[0]);
 });
+
 
 /* =========================================================
    7️⃣ MARK PRINTED
