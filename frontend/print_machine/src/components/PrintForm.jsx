@@ -3,6 +3,8 @@
 
 
 import { useState } from "react";
+import { useEffect } from "react";
+
 import { QRCodeCanvas } from "qrcode.react";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -17,6 +19,7 @@ function PrintForm() {
   const [paperSize, setPaperSize] = useState("A4");
 
   const [jobId, setJobId] = useState(null);
+  const [summary, setSummary] = useState(null);
   const [otp, setOtp] = useState(null);
   const [qrToken, setQrToken] = useState(null);
 
@@ -46,6 +49,11 @@ function PrintForm() {
     setFile(selectedFile);
   };
 
+  const fetchSummary = async (id) => {
+    const res = await fetch(`${API_BASE}/job-summary/${id}`);
+    const data = await res.json();
+    if (res.ok) setSummary(data);
+  };
   /* ===============================
      STEP 1️⃣ UPLOAD JOB
   =============================== */
@@ -76,6 +84,7 @@ function PrintForm() {
       if (!res.ok) throw new Error(data.error);
 
       setJobId(data.jobId);
+      await fetchSummary(data.jobId);
       setSuccess(`Job created. Job ID: ${data.jobId}`);
     } catch (err) {
       setError(err.message || "Upload failed.");
@@ -91,7 +100,7 @@ function PrintForm() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ color, copies, paperSize, printSide }),
     });
-
+    await fetchSummary(jobId);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
   };
@@ -162,110 +171,274 @@ function PrintForm() {
     }
   };
 
+
+  useEffect(() => {
+    if (jobId && !otp) updateJob();
+  }, [color, copies, printSide, paperSize]);
   /* ===============================
      UI
   =============================== */
   return (
+  <div style={styles.page}>
     <div style={styles.card}>
-      <h2 style={styles.title}>Print Document</h2>
+      <h2 style={styles.title}>📄 Print Document</h2>
 
-      {error && <p style={styles.error}>{error}</p>}
-      {success && <p style={styles.success}>{success}</p>}
+      {error && <div style={styles.alertError}>{error}</div>}
+      {success && <div style={styles.alertSuccess}>{success}</div>}
 
-      <label style={styles.label}>Select Shop</label>
-      <select value={shop} onChange={(e) => setShop(e.target.value)} style={styles.input}>
-        <option value="">-- Select Shop --</option>
-        <option value="shop_1">Shop 1</option>
-        <option value="shop_2">Shop 2</option>
-      </select>
+      {/* SHOP */}
+      <div style={styles.formGroup}>
+        <label style={styles.label}>Select Shop</label>
+        <select
+          value={shop}
+          onChange={(e) => setShop(e.target.value)}
+          style={styles.input}
+        >
+          <option value="">-- Select Shop --</option>
+          <option value="shop_1">Shop 1</option>
+          <option value="shop_2">Shop 2</option>
+        </select>
+      </div>
 
-      <label style={styles.label}>Upload PDF</label>
-      <input type="file" accept="application/pdf" onChange={handleFileChange} />
+      {/* FILE */}
+      <div style={styles.formGroup}>
+        <label style={styles.label}>Upload PDF</label>
+        <input
+          type="file"
+          accept="application/pdf"
+          onChange={handleFileChange}
+          style={styles.fileInput}
+        />
+      </div>
 
-      <label style={styles.label}>Print Type</label>
-      <select value={color} onChange={(e) => setColor(e.target.value)} style={styles.input}>
-        <option value="bw">Black & White</option>
-        <option value="color">Color</option>
-      </select>
+      {/* PRINT TYPE */}
+      <div style={styles.row}>
+        <div style={styles.half}>
+          <label style={styles.label}>Print Type</label>
+          <select
+            value={color}
+            onChange={(e) => setColor(e.target.value)}
+            style={styles.input}
+          >
+            <option value="bw">Black & White</option>
+            <option value="color">Color</option>
+          </select>
+        </div>
 
-      <label style={styles.label}>Copies</label>
-      <input
-        type="number"
-        min="1"
-        max="50"
-        value={copies}
-        onChange={(e) => setCopies(Number(e.target.value))}
-        style={styles.input}
-      />
+        <div style={styles.half}>
+          <label style={styles.label}>Copies</label>
+          <input
+            type="number"
+            min="1"
+            max="50"
+            value={copies}
+            onChange={(e) => setCopies(Number(e.target.value))}
+            style={styles.input}
+          />
+        </div>
+      </div>
 
-      <label style={styles.label}>Print Side</label>
-<select
-  value={printSide}
-  onChange={(e) => setPrintSide(e.target.value)}
-  style={styles.input}
->
-  <option value="single">Single Side</option>
-  <option value="duplex">Double Side (Duplex)</option>
-</select>
+      {/* PRINT SIDE & PAPER */}
+      <div style={styles.row}>
+        <div style={styles.half}>
+          <label style={styles.label}>Print Side</label>
+          <select
+            value={printSide}
+            onChange={(e) => setPrintSide(e.target.value)}
+            style={styles.input}
+          >
+            <option value="single">Single Side</option>
+            <option value="duplex">Duplex</option>
+          </select>
+        </div>
 
-      <label style={styles.label}>Paper Size</label>
-      <select value={paperSize} onChange={(e) => setPaperSize(e.target.value)} style={styles.input}>
-        <option value="A4">A4</option>
-        <option value="A3">A3</option>
-      </select>
+        <div style={styles.half}>
+          <label style={styles.label}>Paper Size</label>
+          <select
+            value={paperSize}
+            onChange={(e) => setPaperSize(e.target.value)}
+            style={styles.input}
+          >
+            <option value="A4">A4</option>
+            <option value="A3">A3</option>
+          </select>
+        </div>
+      </div>
 
+      {/* CREATE JOB */}
       {!jobId && (
-        <button onClick={handleUploadJob} style={styles.button}>
+        <button style={styles.primaryButton} onClick={handleUploadJob}>
           Upload & Create Job
         </button>
       )}
 
+      {/* SUMMARY */}
+      {summary && (
+        <div style={styles.summaryBox}>
+          <h3 style={styles.summaryTitle}>🧾 Order Summary</h3>
+          <p>Pages: {summary.totalPages}</p>
+          <p>Copies: {summary.copies}</p>
+          <p>Units: {summary.units}</p>
+          <p>Rate: ₹{summary.rate}</p>
+          <h2 style={styles.total}>Total: ₹{summary.totalAmount}</h2>
+        </div>
+      )}
+
+      {/* PAYMENT */}
       {jobId && !otp && (
-        <button onClick={startPayment} style={styles.button}>
+        <button style={styles.payButton} onClick={startPayment}>
           Pay & Generate OTP
         </button>
       )}
 
+      {/* OTP + QR */}
       {otp && (
-        <div style={{ marginTop: "16px", fontWeight: "bold" }}>
-        <p><b>OTP:</b> {otp}</p>
-          <p>OR scan QR at kiosk</p>
-          
-          {/* <QRCodeSVG value={qrToken} size={180} /> */}
-          <QRCodeCanvas value={qrToken} size={180} />
-          {/* OTP for Kiosk: <span style={{ color: "green" }}>{otp}</span> */}
+        <div style={styles.otpBox}>
+          <h2 style={styles.otpText}>🔐 OTP: {otp}</h2>
+          <p>Scan at Kiosk or Enter OTP</p>
+          <div style={{ marginTop: 15 }}>
+            <QRCodeCanvas value={qrToken} size={200} />
+          </div>
         </div>
       )}
     </div>
-  );
+  </div>
+);
+
 }
 
 /* ===============================
    STYLES
 =============================== */
 const styles = {
-  card: {
-    background: "#fff",
-    padding: "24px",
-    borderRadius: "8px",
-    maxWidth: "400px",
-    boxShadow: "0 4px 10px rgba(0,0,0,0.1)",
+  page: {
+    minHeight: "100vh",
+    background: "linear-gradient(135deg, #f0f4f8, #e2e8f0)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
   },
-  title: { fontSize: "20px", marginBottom: "16px" },
-  label: { marginTop: "12px", display: "block" },
-  input: { width: "100%", padding: "8px", marginBottom: "8px" },
-  button: {
-    marginTop: "16px",
+
+  card: {
     width: "100%",
-    padding: "10px",
+    maxWidth: 500,
+    background: "#ffffff",
+    padding: 30,
+    borderRadius: 12,
+    boxShadow: "0 10px 25px rgba(0,0,0,0.08)",
+  },
+
+  title: {
+    marginBottom: 20,
+    textAlign: "center",
+    fontSize: 22,
+    fontWeight: 600,
+  },
+
+  formGroup: {
+    marginBottom: 15,
+  },
+
+  row: {
+    display: "flex",
+    gap: 12,
+    marginBottom: 15,
+  },
+
+  half: {
+    flex: 1,
+  },
+
+  label: {
+    fontSize: 14,
+    fontWeight: 500,
+    marginBottom: 5,
+    display: "block",
+  },
+
+  input: {
+    width: "100%",
+    padding: 10,
+    borderRadius: 6,
+    border: "1px solid #cbd5e1",
+    fontSize: 14,
+  },
+
+  fileInput: {
+    marginTop: 5,
+  },
+
+  primaryButton: {
+    marginTop: 10,
+    width: "100%",
+    padding: 12,
+    backgroundColor: "#2563eb",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+
+  payButton: {
+    marginTop: 15,
+    width: "100%",
+    padding: 12,
     backgroundColor: "#16a34a",
     color: "#fff",
     border: "none",
-    borderRadius: "4px",
+    borderRadius: 8,
+    fontWeight: 600,
+    cursor: "pointer",
   },
-  error: { color: "red" },
-  success: { color: "green" },
+
+  summaryBox: {
+    marginTop: 20,
+    padding: 15,
+    background: "#f8fafc",
+    borderRadius: 8,
+    border: "1px solid #e2e8f0",
+  },
+
+  summaryTitle: {
+    marginBottom: 10,
+  },
+
+  total: {
+    marginTop: 10,
+    color: "#16a34a",
+  },
+
+  otpBox: {
+    marginTop: 20,
+    textAlign: "center",
+    padding: 20,
+    background: "#ecfdf5",
+    borderRadius: 10,
+  },
+
+  otpText: {
+    color: "#065f46",
+  },
+
+  alertError: {
+    background: "#fee2e2",
+    padding: 10,
+    borderRadius: 6,
+    color: "#b91c1c",
+    marginBottom: 10,
+  },
+
+  alertSuccess: {
+    background: "#dcfce7",
+    padding: 10,
+    borderRadius: 6,
+    color: "#166534",
+    marginBottom: 10,
+  },
 };
+
 
 export default PrintForm;
 
